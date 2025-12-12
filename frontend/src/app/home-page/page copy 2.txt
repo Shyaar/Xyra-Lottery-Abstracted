@@ -1,0 +1,475 @@
+"use client";
+import React, { useEffect, useState } from "react";
+import ClaimPrizeModal from "./modals/ClaimPrizeModal";
+import ConnectWalletModal from "./modals/ConnectWalletModal";
+import HistoryModal from "./modals/HistoryModal";
+import ParticipantsModal from "./modals/ParticipantsModal";
+import SettingsModal from "./modals/SettingsModal";
+import WithdrawRefundModal from "./modals/WithdrawRefundModal";
+import FundWalletModal from "./modals/FundWalletModal"; // Added import
+import WinnerSection from "./components/WinnerSection";
+import BuyTicketsSection from "./components/BuyTicketsSection";
+import RightPanel from "./components/RightPanel";
+import { useBuyTicketWrite } from "../../../hooks/useBuyTicketWrite";
+import { useRouter } from "next/navigation";
+import { useAccount, useDisconnect, useBalance } from "wagmi";
+import {
+  useRoundActive,
+  useRoundEndTimestamp,
+  useUserTickets,
+  useEntryCount,
+  useWinner,
+  usePrizeAmountRedeemed,
+  useExpectedRefund,
+  useRoundId,
+  usePrizeClaimed,
+  useOwner,
+} from "../../../hooks/useReadLottery";
+import { useLotteryWrite } from "../../../hooks/useLotteryWrite";
+import { parseUnits } from "viem";
+import { useApproveUSDCGasless } from "../../../hooks/useApproval";
+import UiButton from "./components/UiButton";
+import { useClaimPrize } from "../../../hooks/useClaimPrize";
+import { useClaimPrincipal } from "../../../hooks/useClaimPrincipal";
+import { Loader } from "lucide-react";
+import {
+  useHarvestingState,
+  useWithdrawnState,
+} from "../../../hooks/useVaultReader";
+import { usePrivy } from "@privy-io/react-auth";
+import { SignUpButton } from "../components/ui/button";
+import Countdown from "../components/Countdown";
+
+type Ticket = {
+  ticketId: bigint;
+  roundEndTimestamp: bigint;
+  principal: bigint;
+  owner: string;
+};
+
+export default function HomePage() {
+  type ModalName =
+    | "connectWallet"
+    | "withdrawRefund"
+    | "claimPrize"
+    | "tokenSelector"
+    | "participants"
+    | "history"
+    | "fundWallet"
+    | "settings";
+
+  const router = useRouter();
+
+  const { user, login, logout, ready, authenticated } = usePrivy();
+
+  const [roundEnded, setRoundEnded] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [isRoundEndTimePassed, setIsRoundEndTimePassed] = useState(false);
+
+  const [isHarvestButtonEnabled, setIsHarvestButtonEnabled] = useState(false);
+  const [isStartButtonEnabled, setIsStartButtonEnabled] = useState(false);
+  const [isWithdrawButtonEnabled, setIsWithdrawButtonEnabled] = useState(false);
+  const [isCloseButtonEnabled, setIsCloseButtonEnabled] = useState(false);
+
+  const { data: owner } = useOwner();
+  const {
+    performStart,
+    performClose,
+    earnAndHarvest,
+    emergencyWithdrawFromStrategy,
+    resetVaultFlags,
+    isLoading: isLotteryWriteLoading,
+    isSuccess: isLotteryWriteSuccess,
+    isWithdrawSuccessful,
+    resetWithdrawSuccess,
+    isError: isLotteryWriteError,
+    functionName, // Added functionName
+  } = useLotteryWrite();
+
+  const embededWallet =
+    user?.wallet?.address ??
+    user?.linkedAccounts?.find((a) => a.type === "wallet");
+
+  const { address } = useAccount();
+
+  const {
+    data: roundActive,
+    isLoading,
+    refetch: refetchRoundActive,
+  } = useRoundActive();
+  const { data: roundEndTimestamp, refetch } = useRoundEndTimestamp();
+  const { buyTicket, isLoading: isBuyTicketPending } = useBuyTicketWrite();
+  const { data: userTickets, isLoading: isUserTicketsLoading } =
+    useUserTickets(address);
+  const { data: entryCount, isLoading: isEntryCountLoading } = useEntryCount();
+
+  // Fetch USDC Balance
+  const usdcTokenAddress = process.env
+    .NEXT_PUBLIC_USDC_TOKEN_ADDRESS as `0x${string}`;
+  const { data: usdcBalanceData } = useBalance({
+    address: address,
+    token: usdcTokenAddress,
+  });
+
+  const { data: winnerAddress, isLoading: isWinnerLoading } = useWinner();
+  const { data: prizeAmount, isLoading: isPrizeAmountLoading } =
+    usePrizeAmountRedeemed();
+  const { data: expectedRefundAmount, isLoading: isExpectedRefundLoading } =
+    useExpectedRefund(address);
+  const { data: currentRoundId, isLoading: isRoundIdLoading } = useRoundId();
+  const { data: prizeClaimed } = usePrizeClaimed();
+  const { claimPrize, isLoading: isClaimPrizePending } = useClaimPrize();
+  const { claimPrincipal, isLoading: isClaimPrincipalPending } =
+    useClaimPrincipal();
+  const [strategyTriggered, setStrategyTriggered] = useState(false);
+  const {
+    approve,
+    isLoading: isApproving,
+    isSuccess: isApproved,
+    status: approveStatus,
+  } = useApproveUSDCGasless();
+
+  const vaultContractAddress = process.env
+    .NEXT_PUBLIC_TOKEN_VAULT_CONTRACT_ADDRESS as `0x${string}`;
+  const { data: vaultBalanceData } = useBalance({
+    address: vaultContractAddress,
+    token: usdcTokenAddress,
+  });
+  const [modals, setModals] = useState({
+    connectWallet: false,
+    withdrawRefund: false,
+    claimPrize: false,
+    tokenSelector: false,
+    participants: false,
+    history: false,
+    settings: false,
+    fundWallet: false,
+  });
+  const [selectedCurrency, setSelectedCurrency] = useState("ETH");
+  const [usdcToUsdRate, setUsdcToUsdRate] = useState<number | null>(null);
+
+  const openModal = (modalName: ModalName) =>
+    setModals((prev) => ({ ...prev, [modalName]: true }));
+  const closeModal = (modalName: ModalName) =>
+    setModals((prev) => ({ ...prev, [modalName]: false }));
+
+  const [stage, setStage] = useState("");
+  const { data: isHarvesting } = useHarvestingState();
+  const { data: hasWithdrawn } = useWithdrawnState();
+
+  // -------------------------
+  // Handlers
+  // -------------------------
+
+  let [stagePassed, setStagePassed] = useState(1);
+  useEffect(() => {
+    console.log("Stage Changed");
+  }, [stagePassed]);
+
+  const handleBuyTicket = async () => {
+    const amount = parseUnits("0.0001", 6);
+
+    await approve(amount);
+    await buyTicket(amount);
+    refetchRoundActive();
+  };
+
+  const handleClaimPrize = () => {
+    claimPrize();
+  };
+
+  function handleStart(): void {
+    setStage("Starting");
+    setStagePassed(1);
+
+    performStart();
+    console.log("Round starging");
+    setTimeLeft(Math.floor(Date.now() / 1000) + 120000);
+    setStage("Round Started");
+    setTimeout(() => {
+      console.log("Round Started");
+      setStagePassed(2);
+      setIsStartButtonEnabled(false)
+      setIsHarvestButtonEnabled(true)
+    }, 120000);
+  }
+
+  function handleEarnAndHarvest(): void {
+    setStage("Harvesting");
+    earnAndHarvest()
+    console.log("Harvesting");
+    setTimeLeft(Math.floor(Date.now() / 1000) + 10);
+    setTimeout(() => {
+      console.log("Havestigation ggo");
+      setStagePassed(3);
+      setIsHarvestButtonEnabled(false)
+      setIsWithdrawButtonEnabled(true)
+    }, 10000);
+  }
+
+  function handleEmergencyWithdrawFromStrategy(): void {
+    setStage("Withdrawing");
+    emergencyWithdrawFromStrategy();
+    console.log("Withdrawing");
+    setTimeLeft(Math.floor(Date.now() / 1000) + 10);
+    setTimeout(() => {
+      console.log("Withdrawing ggo");
+      setStagePassed(4);
+      setIsWithdrawButtonEnabled(false)
+      setIsCloseButtonEnabled(true)
+    }, 10000);
+  }
+
+  function handlePerformClose(): void {
+    setStage("Closing");
+    resetVaultFlags();
+    performClose();
+    console.log("Closing");
+    setTimeLeft(Math.floor(Date.now() / 1000) + 10);
+
+    setTimeout(() => {
+      console.log("closing ggo");
+      setStagePassed(5);
+      setIsCloseButtonEnabled(false)
+      setIsStartButtonEnabled(true)
+      setStagePassed(1)
+    }, 10000);
+  }
+
+  // -------------------------
+  // SINGLE LIFECYCLE EFFECT (state machine)
+  // -------------------------
+
+
+  useEffect(() => {
+    if(!roundActive){
+      setStagePassed(1)
+      setIsStartButtonEnabled(true)
+    }
+    if (roundActive && roundEndTimestamp) {
+      setStagePassed(1);
+      setTimeLeft(Number(roundEndTimestamp));
+      refetchRoundActive();
+      refetch();
+      setStage("Round Active");
+
+      const now = Math.floor(Date.now() / 1000); // Current time in seconds
+      if (now > Number(roundEndTimestamp)) {
+        setIsRoundEndTimePassed(true);
+        setIsHarvestButtonEnabled(true);
+        setStage("Harvesting");
+        setStagePassed(2);
+      }
+    }
+
+    if (isHarvesting && !isWithdrawSuccessful) {
+      setStage("Harvesting");
+      setIsHarvestButtonEnabled(false)
+      setStagePassed(3)
+    }
+
+    if(isWithdrawSuccessful){
+      setStage("Closing");
+      setIsCloseButtonEnabled(false)
+      setStagePassed(4)
+    }
+  }, [roundEndTimestamp, roundActive, isWithdrawSuccessful, isHarvesting]);
+
+
+
+  return (
+    <div className="relative flex flex-col min-h-screen font-serif bg-black text-white overflow-hidden">
+      <div className="absolute inset-0 z-0">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(234,179,8,0.05),transparent_50%)]" />
+        <div
+          className="absolute inset-0 opacity-30"
+          style={{
+            backgroundImage: `repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(255,255,255,0.03) 2px,
+            rgba(255,255,255,0.03) 4px
+          ),
+          repeating-linear-gradient(
+            90deg,
+            transparent,
+            transparent 2px,
+            rgba(255,255,255,0.03) 2px,
+            rgba(255,255,255,0.03) 4px
+          )`,
+          }}
+        />
+      </div>
+
+      <nav className="relative z-10 flex justify-between items-center px-6 md:px-16 py-4 border-b border-yellow-400/20 backdrop-blur-sm">
+        <div className="flex items-center space-x-2">
+          <div className="w-8 h-8 bg-yellow-400 rounded transform rotate-45" />
+          <span className="text-2xl font-bold tracking-tight">Xyra</span>
+        </div>
+
+        <SignUpButton />
+      </nav>
+
+      <main className="flex md:grid-cols-3 gap-6 mx-40 py-12">
+        <div className="md:col-span-2 flex flex-col space-y-6 ">
+          <div>
+            <div className="flex gap-6">
+              <button
+                onClick={() => handleStart()}
+                disabled={roundActive}
+                className={
+                  stagePassed > 1
+                    ? `px-6 py-3 w-full bg-green-800 text-white/40 rounded border border-green-600 font-semibold text-sm hover:bg-green-900 transition-all transform hover:scale-105 tracking-wide flex items-center justify-center`
+                    : `px-6 py-3 w-full bg-yellow-400 text-black rounded font-semibold text-sm hover:bg-yellow-500 transition-all transform hover:scale-105 tracking-wide flex items-center justify-center disabled:bg-yellow-400/10 disabled:border disabled:border-yellow-500/10 disabled:text-white/40`
+                }
+              >
+                {stage === "Round is Active"
+                  ? "Round Active"
+                  : isLotteryWriteLoading
+                  ? "Please Wait"
+                  : "Start"}
+              </button>
+
+              <button
+                onClick={() => handleEarnAndHarvest()}
+                disabled={!isHarvestButtonEnabled}
+                className={
+                  stagePassed > 2
+                    ? `px-6 py-3 w-full bg-green-800 text-white/40 rounded border border-green-600 font-semibold text-sm hover:bg-green-900 transition-all transform hover:scale-105 tracking-wide flex items-center justify-center`
+                    : `px-6 py-3 w-full bg-yellow-400 text-black rounded font-semibold text-sm hover:bg-yellow-500 transition-all transform hover:scale-105 tracking-wide flex items-center justify-center disabled:bg-yellow-400/10 disabled:border disabled:border-yellow-500/10 disabled:text-white/40`
+                }
+              >
+                {stage === "Harvesting"
+                  ? "Harvesting"
+                  : isLotteryWriteLoading
+                  ? "Please Wait"
+                  : "Harvest"}
+              </button>
+
+              <button
+                onClick={() => handleEmergencyWithdrawFromStrategy()}
+                disabled={!isWithdrawButtonEnabled}
+                className={
+                  stagePassed > 3
+                    ? `px-6 py-3 w-full bg-green-800 text-white/40 rounded border border-green-600 font-semibold text-sm hover:bg-green-900 transition-all transform hover:scale-105 tracking-wide flex items-center justify-center`
+                    : `px-6 py-3 w-full bg-yellow-400 text-black rounded font-semibold text-sm hover:bg-yellow-500 transition-all transform hover:scale-105 tracking-wide flex items-center justify-center disabled:bg-yellow-400/10 disabled:border disabled:border-yellow-500/10 disabled:text-white/40`
+                }
+              >
+                {stage === "Withdrawing"
+                  ? "Withdrawing"
+                  : isLotteryWriteLoading
+                  ? "Please Wait"
+                  : "Withdraw"}
+              </button>
+
+              <button
+                onClick={() => handlePerformClose()}
+                disabled={!isCloseButtonEnabled}
+                className={
+                  stagePassed > 4
+                    ? `px-6 py-3 w-full bg-green-800 text-white/40 rounded border border-green-600 font-semibold text-sm hover:bg-green-900 transition-all transform hover:scale-105 tracking-wide flex items-center justify-center`
+                    : `px-6 py-3 w-full bg-yellow-400 text-black rounded font-semibold text-sm hover:bg-yellow-500 transition-all transform hover:scale-105 tracking-wide flex items-center justify-center disabled:bg-yellow-400/10 disabled:border disabled:border-yellow-500/10 disabled:text-white/40`
+                }
+              >
+                {stage === "Closing"
+                  ? "Closing"
+                  : isLotteryWriteLoading
+                  ? "Please Wait"
+                  : "Close"}
+              </button>
+
+            </div>
+            <div className="flex gap-1 items-center">
+              <p className="text-white text-xs p-4">{stage}!</p>
+              <Countdown targetTimestamp={timeLeft} />
+            </div>
+          </div>
+
+          {/* Winner Section */}
+          <WinnerSection
+            currentRoundId={currentRoundId}
+            roundActive={roundActive}
+            isWinnerLoading={isWinnerLoading}
+            winnerAddress={winnerAddress}
+            address={address}
+            roundEndTimestamp={roundEndTimestamp}
+            isPrizeAmountLoading={isPrizeAmountLoading}
+            isExpectedRefundLoading={isExpectedRefundLoading}
+            isRoundIdLoading={isRoundIdLoading}
+            prizeAmount={prizeAmount}
+            expectedRefundAmount={expectedRefundAmount}
+            handleClaimPrize={handleClaimPrize}
+            isClaimPrizePending={isClaimPrizePending}
+            claimPrincipal={() => claimPrincipal()}
+            isClaimPrincipalPending={isClaimPrincipalPending}
+            prizeClaimed={prizeClaimed}
+          />
+
+          {/* Buy Tickets Section */}
+          <BuyTicketsSection
+            handleBuyTicket={handleBuyTicket}
+            roundActive={roundActive}
+            isLoading={isLoading}
+            isBuyTicketPending={isBuyTicketPending}
+            roundEnded={roundEnded}
+            roundEndTimestamp={roundEndTimestamp}
+            isEntryCountLoading={isEntryCountLoading}
+            entryCount={entryCount}
+            openModal={openModal}
+          />
+        </div>
+
+        {/* Right Panel */}
+        <RightPanel
+          selectedCurrency={selectedCurrency}
+          usdcBalanceData={usdcBalanceData}
+          usdcToUsdRate={usdcToUsdRate}
+          setSelectedCurrency={setSelectedCurrency}
+          address={address}
+          openModal={openModal}
+          isUserTicketsLoading={isUserTicketsLoading}
+          userTickets={userTickets}
+        />
+      </main>
+
+      {/* Modals */}
+      <ConnectWalletModal
+        isOpen={modals.connectWallet}
+        onClose={() => closeModal("connectWallet")}
+      />
+      <WithdrawRefundModal
+        isOpen={modals.withdrawRefund}
+        onClose={() => closeModal("withdrawRefund")}
+      />
+      <ClaimPrizeModal
+        isOpen={modals.claimPrize}
+        onClose={() => closeModal("claimPrize")}
+      />
+      <ParticipantsModal
+        isOpen={modals.participants}
+        onClose={() => closeModal("participants")}
+      />
+      <HistoryModal
+        isOpen={modals.history}
+        onClose={() => closeModal("history")}
+      />
+      <SettingsModal
+        isOpen={modals.settings}
+        onClose={() => closeModal("settings")}
+      />
+      <FundWalletModal
+        isOpen={modals.fundWallet}
+        onClose={() => closeModal("fundWallet")}
+      />
+
+      {/* Footer */}
+      <footer className="flex flex-col justify-center items-center p-6 border-t border-yellow text-center">
+        <div className="text-sm font-medium mb-1">LotteryDApp</div>
+        <div className="text-xs text-gray-400">
+          © 2025 LotteryDApp. All rights reserved.
+        </div>
+      </footer>
+    </div>
+  );
+}
