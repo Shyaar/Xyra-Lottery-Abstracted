@@ -1,4 +1,5 @@
 "use client";
+
 import React, { useEffect, useState } from "react";
 import ClaimPrizeModal from "./modals/ClaimPrizeModal";
 import ConnectWalletModal from "./modals/ConnectWalletModal";
@@ -6,7 +7,7 @@ import HistoryModal from "./modals/HistoryModal";
 import ParticipantsModal from "./modals/ParticipantsModal";
 import SettingsModal from "./modals/SettingsModal";
 import WithdrawRefundModal from "./modals/WithdrawRefundModal";
-import FundWalletModal from "./modals/FundWalletModal"; // Added import
+import FundWalletModal from "./modals/FundWalletModal"; 
 import WinnerSection from "./components/WinnerSection";
 import BuyTicketsSection from "./components/BuyTicketsSection";
 import RightPanel from "./components/RightPanel";
@@ -159,9 +160,7 @@ export default function HomePage() {
   const { data: isHarvesting } = useHarvestingState();
   const { data: hasWithdrawn } = useWithdrawnState();
 
-  // -------------------------
-  // Handlers
-  // -------------------------
+
 
   let [stagePassed, setStagePassed] = useState(1);
   useEffect(() => {

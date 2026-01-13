@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@farcaster/miniapp-sdk": "^0.2.1",
-    "@privy-io/react-auth": "^3.8.0",
+    "@privy-io/react-auth": "^3.10.1",
     "@privy-io/wagmi": "^2.0.3",
     "@privy-io/wagmi-connector": "^0.1.13",
     "@reown/appkit": "^1.8.10",

@@ -24,7 +24,6 @@ import { usePrivy } from "@privy-io/react-auth";
 export default function LandingPage() {
   const router = useRouter();
 
-  // Wallet connection
   const { address, isConnected } = useAccount();
 
   const { login, logout, ready, authenticated } = usePrivy();
@@ -72,7 +71,6 @@ export default function LandingPage() {
       </nav>
 
       <main className="relative z-10 flex-grow">
-        {/* Hero Section */}
         <section className="flex flex-col justify-center items-center flex-1 px-6 py-24 text-center">
           <div className="max-w-5xl">
             <div className="mb-6 text-xs uppercase tracking-widest text-yellow-400 font-semibold">
@@ -99,7 +97,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* How It Works Section */}
         <section className="py-20 px-6">
           <div className="max-w-5xl mx-auto text-center">
             <h2 className="text-4xl font-bold mb-4">How It Works</h2>
@@ -142,7 +139,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Why Xyra is Different Section */}
         <section className="py-20 px-6 bg-black/40 ">
           <div className="max-w-5xl mx-auto text-center">
             <h2 className="text-4xl font-bold mb-12">Why Xyra is Different</h2>
@@ -179,7 +175,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* A New Era of Lottery Section */}
         <section className="py-20 px-6">
           <div className="max-w-5xl mx-auto">
             <div className="grid md:grid-cols-2 gap-12 items-center">
@@ -222,7 +217,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Final CTA Section */}
         <section className="py-20 px-6 text-center">
           <h2 className="text-4xl font-bold mb-4">Ready to Win?</h2>
           <p className="text-lg text-gray-400 mb-8">
