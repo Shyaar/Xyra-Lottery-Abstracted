@@ -10,9 +10,34 @@ import "../strategy/IStrategy.sol";
 import {LotteryErrors} from "../lib/errors/lotteryErrors.sol";
 import {LotteryEvents} from "../lib/events/lotteryEvents.sol";
 
+
 interface IRandomifier {
     function requestRandomness() external returns (uint256);
 }
+
+/**
+ * @title LotteryManager
+ * @notice Orchestrates a no-loss lottery using USDC deposits and a yield vault.
+ *
+ * @dev High-level responsibilities:
+ * - Manages lottery rounds (start, close, cooldown scheduling)
+ * - Accepts USDC deposits, forwards them into a yield-generating vault
+ * - Tracks user shares and ticket ownership per round
+ * - Requests randomness externally and selects a winner
+ * - Redeems only yield as prize, while preserving user principal
+ * - Allows users to reclaim principal after round ends
+ *
+ * @dev What this contract does NOT do:
+ * - It does not generate randomness (handled by `randomifier`)
+ * - It does not implement yield logic (handled by `TokenVault` + strategy)
+ * - It does not custody funds permanently (users always reclaim principal)
+ *
+ * @dev Funds flow:
+ * User USDC → LotteryManager → TokenVault → Strategy
+ * Yield → redeemed → winner
+ * Principal → redeemed → users
+ */
+
 
 contract LotteryManager is ReentrancyGuard, Ownable {
     IERC20 public immutable USDC;        // underlying ERC-20 token (USDC)
